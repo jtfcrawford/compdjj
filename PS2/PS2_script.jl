@@ -22,6 +22,14 @@ Value_Iteration(input,output)
 # Find stationary wealth distribution
 Wealth_Dist_Iteration(input, output)
 
+######Plotting the wealth distribution (TEST)
+using Plots
+@unpack μ = output.μ
+μ_conditional = copy(μ)
+μ_conditional[: , 1] = μ_conditional[:, 1] / sum(μ_conditional[:, 1])
+μ_conditional[: , 2] = μ_conditional[:, 2] / sum(μ_conditional[:, 2])
+plot(input.a_grid, μ_conditional, labels=["Employed" "Unemployed"], title="Wealth Distributions for Each State: μ(a|s)")
+
 # Plotting
 using Plots
 plot(input.a_grid, output.valfunc,labels=["Employed" "Unemployed"])

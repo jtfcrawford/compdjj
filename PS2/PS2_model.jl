@@ -20,9 +20,8 @@ using Parameters
     A::Array{Float64,1} = [-2.0, 5.0] # space of asset holdings
     a_length::Int64 = 1000 # asset grid length, count
     a_grid::Array{Float64,1} = range(start=A[1],length=a_length,stop=A[2]) # asset grid
-    q::Float64 = 0.5 # price of discount bonds
     
-    q_initial::Float64 = 0.5 # initial guess for price of discount bonds
+    q_initial::Float64 = 0.993 # initial guess for price of discount bonds
     q_min::Float64 = 0 # range of possible bond prices
     q_max::Float64 = 1
 end
@@ -133,29 +132,30 @@ function T_star(input::Input,output::Output)
     end
     
     # check that μ_next approximately sums to 1 (code breaks if not)
-    sum_check = sum(μ_next)
-    @assert abs(sum(μ_next) - 1) < 0.01 "Error: sum of μ_next is $sum_check; not within 0.01 of 1."
+    # sum_check = sum(μ_next)
+    # @assert abs(sum(μ_next) - 1) < 0.01 "Error: sum of μ_next is $sum_check; not within 0.01 of 1."
 
     # update μ
     return μ_next
 end
 
-function Wealth_Dist_Iteration(input::Input, output::Output; tol::Float64=1e-5, err::Float64 = 100.0)
+# Then we need another function that basically is the same as the value iteration function
+# except we want the wealth distribution to converge
+function Wealth_Dist_Iteration(input::Input, output::Output; tol::Float64=1e-5, err::Float64 = 100.0, maxiter::Int64 = 5000)
     counter = 0
-    while err > tol
+    while err > tol && counter <= maxiter
         μ_next = T_star(input, output) # apply T* operator to current guess for μ*
+        μ_next_sum = sum(μ_next)
         err = maximum(abs.((μ_next .- output.μ) ./ output.μ)) # update error
+        println("Iteration $counter: Sum of μ_next is $μ_next_sum, err is $err")
         output.μ = μ_next
         counter += 1
     end
-    println("Wealth distribution converged in $counter iterations")
-end
-
-# Then we need another function that basically is the same as the value iteration function
-# except we want the wealth distribution to converge
-#=
-function dist_iteration(input::Input,output::Output)
-
+    if counter > maxiter
+        println("Max number of iterations ($maxiter) reached for wealth distribution. Error: $err; tolerance: $tol.")
+    else
+        println("Wealth distribution converged in $counter iterations. Error: $err; tolerance: $tol")
+    end
 end
 
 # Once we have the above set up, we can use the below price updating function and continually
@@ -163,7 +163,7 @@ end
 
 
 function adjust_price(input::Input,output::Output,tol::Float64 = 1e-5)
-   excess_supply = sum(output.μ .* [a_grid a_grid])
+   excess_supply = sum(output.μ .* [input.a_grid input.a_grid])
    if abs(excess_supply) < tol
 
    # I think I was close on how to do this bisection but the below isn't quite right
@@ -174,4 +174,3 @@ function adjust_price(input::Input,output::Output,tol::Float64 = 1e-5)
    # output.q = (output.q + q_min) / 2
    end
 end
-=#
