@@ -15,5 +15,7 @@ include("PS3_model.jl")
 
 # Initialize input (primitives) and output (solutions) structures
 input, output = Initialize()
+# Find value function & policy function
+Value_Iteration(input,output)
 
 println("Done!")
