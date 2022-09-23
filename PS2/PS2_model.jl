@@ -187,6 +187,7 @@ function Solve_Model(input::Input, eqm::Equilibrium; mc_maxiter::Int64=100, mc_t
     while market_cleared == 0 && mc_counter < mc_maxiter
         println("**************************************")
         println("Guess #$mc_counter for price: q = $q")
+        println("Current range for q: [$q_min, $q_max]")
         
         #reset value & policy functions and wealth distribution
         temp_results = Reset_Temp_Results(input)
@@ -220,7 +221,7 @@ function Solve_Model(input::Input, eqm::Equilibrium; mc_maxiter::Int64=100, mc_t
             mc_counter += 1
             println("Excess demand is positive ($excess_demand) and outside tolerance ($mc_tol). Raising price to $q_new")
         elseif excess_demand <= -mc_tol
-            q_max = q # update upper bound of q guesses to be the old q guess
+            # q_max = q # update upper bound of q guesses to be the old q guess
             q_new = q - min(1, abs(excess_demand)) * (q - q_min) / 2 # update guess for q
             q = q_new
             mc_counter += 1
@@ -235,4 +236,140 @@ function Solve_Model(input::Input, eqm::Equilibrium; mc_maxiter::Int64=100, mc_t
         println("Reached max number of guesses for price ($mc_maxiter). Last guess was $(eqm.q).")
         println("Excess demand = $(eqm.excess_demand); tolerance = $mc_tol.")
     end
+end
+
+#########################################
+# Compute Lorenz curve
+function Lorenz_Curve(input::Input, eqm::Equilibrium)
+    @unpack valfunc, μ = eqm
+    @unpack a_grid, a_length, S_length, S = input
+    
+    #----- Compute data for plotting Lorenz curve
+    # Every possible level of total wealth (earnings + current assets)
+    wealth_levels = []
+    for i=1:a_length, j=1:S_length
+        # calculate wealth at each asset holding i & empl. state j
+        w_temp = a_grid[i] + S[j]
+
+        # add this wealth level to the wealth grid if not already there & a positive measure of HHs hold it
+        # o/w skip
+        if w_temp ∉ wealth_levels && μ[i, j] > 0
+            push!(wealth_levels, w_temp)
+        end
+    end
+    sort!(wealth_levels)
+
+    # Mass of HHs at each wealth level
+    w_length = length(wealth_levels)
+    P_wealth = zeros(length(wealth_levels))
+    for k=1:w_length
+        for i=1:a_length, j=1:S_length
+            P_wealth[k] += (a_grid[i] + S[j] == wealth_levels[k]) * μ[i, j]
+        end
+    end
+    @assert abs(sum(P_wealth) - 1) < 1e-8 "Error: unconditional distribution of wealth doesn't sum to 1."
+
+    # Cumul % of wealth
+    tot_wealth = sum(P_wealth .* wealth_levels)
+    cumul_pct_wealth = zeros(w_length)
+    for k=1:w_length
+        if k == 1
+            cumul_pct_wealth[k] = (P_wealth[k] * wealth_levels[k]) / tot_wealth
+        elseif k > 1
+            cumul_pct_wealth[k] = (P_wealth[k] * wealth_levels[k]) / tot_wealth + cumul_pct_wealth[k - 1]
+        end
+    end
+
+    # Cumul % of pop
+    cumul_pct_pop = zeros(w_length)
+    for k=1:w_length
+        if k== 1
+            cumul_pct_pop[k] = P_wealth[k]
+        elseif k > 1
+            cumul_pct_pop[k] = P_wealth[k] + cumul_pct_pop[k - 1]
+        end
+    end
+
+    #------ Compute Gini coefficient
+    # crude approx of incremental changes in cumul_pct_pop (dx)
+    d_cumul_pct_pop = zeros(length(cumul_pct_pop))
+    w_length = length(cumul_pct_pop)
+    for k=1:w_length
+        if k==1
+            d_cumul_pct_pop[k] = 0
+        elseif k > 1
+            d_cumul_pct_pop[k] = cumul_pct_pop[k] - cumul_pct_pop[k - 1]
+        end
+    end
+
+    # Area 1: area under line of equality (crude approx)
+    a1 = sum(cumul_pct_pop .* d_cumul_pct_pop)
+
+    # Area 2: area between line of equality & Lorenz curve (crude approx)
+    a2 = sum((cumul_pct_pop - cumul_pct_wealth) .* d_cumul_pct_pop)
+
+    # Gini coefficient: ratio of Area 2 to Area 1
+    gini = a2 / a1
+
+    return cumul_pct_pop, cumul_pct_wealth, gini
+end
+
+#########################################
+# Compute first-best welfare (planner's solution)
+function Compute_Welfare_Planner(input::Input)
+    @unpack α, β, Π, S = input
+
+    # compute stationary distribution of the Markov chain
+    Π_stationary = (Π^1000)[1, :]
+    
+    # calculate planner's allocation
+    c_star = Π_stationary[1] + (1 - Π_stationary[1]) * S[2] # planner's solution goes here
+
+    # calculate aggregate welfare (PV)
+    W_FB = (c_star^(1 - α) - 1) / ((1 - α) * (1 - β))
+
+    return W_FB
+end
+
+#########################################
+# Compute incomplete markets welfare
+function Compute_Welfare_Incomplete(eqm::Equilibrium)
+    @unpack μ, valfunc = eqm
+
+    W_INC = sum(μ .* valfunc)
+
+    return W_INC
+end
+
+#########################################
+# Compute consumption equivalents for each (a,s)
+function Compute_Consumption_Equiv(input::Input, eqm::Equilibrium, W_FB::Float64)
+    @unpack α, β, a_length, S_length = input
+    @unpack valfunc = eqm
+
+    γ = 1 / ((1-α)*(1-β))
+
+    λ = (( W_FB + γ ) ./ ( valfunc .+ γ )).^(1 / (1 - α)) .- 1
+
+    return λ
+end
+
+#########################################
+# Compute welfare gains
+function Compute_Welfare_Gains(eqm::Equilibrium, λ::Array{Float64})
+    @unpack μ = eqm
+
+    WG = sum(λ .* μ)
+
+    return WG
+end
+
+#########################################
+# Compute share of pop who would vote for complete markets
+function Compute_FB_Votes(eqm::Equilibrium, λ::Array{Float64})
+    @unpack μ = eqm
+
+    FB_voteshare = sum((λ .≥ 0) .* μ)
+
+    return FB_voteshare
 end
