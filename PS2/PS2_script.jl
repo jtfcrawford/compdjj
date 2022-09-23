@@ -8,7 +8,8 @@ println("Starting...")
 
 # You may need to manually set your file path in the Julia terminal using pwd("C:\\Example\\Filepath")
 # Or you can change this line of code:
-cd("C:\\Users\\jgkro\\Documents\\GitHub\\compdjj\\PS2")
+#cd("C:\\Users\\jgkro\\Documents\\GitHub\\compdjj\\PS2")
+#cd("Users\\dalya\\Documents\\GitHub\\compdjj\\PS2")
 
 # Bring in model and other functions
 include("PS2_model.jl")
