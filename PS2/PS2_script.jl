@@ -13,14 +13,13 @@ cd("C:\\Users\\jgkro\\Documents\\GitHub\\compdjj\\PS2")
 # Bring in model and other functions
 include("PS2_model.jl")
 
-# Initialize input (primitives) and output (solutions) structures
-input, output = Initialize()
+# Solve the model
+input, eqm = Initialize() # initialize primitives
+Solve_Model(input, eqm)
 
-# Find value function & policy function
-Value_Iteration(input,output)
 
-# Find stationary wealth distribution
-Wealth_Dist_Iteration(input, output)
+using Plots
+plot(1:length(q_guesses), q_guesses)
 
 ######Plotting the wealth distribution (TEST)
 using Plots
