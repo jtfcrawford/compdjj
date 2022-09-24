@@ -26,7 +26,7 @@ using DelimitedFiles
     r::Float64 = 0.05 # interest rate
     b::Float64 = 0.2 # social security benefit
     Π::Array{Float64,2} = [0.9261 0.07389; 0.0189 0.9811] # random productivity persistence probabilities
-    eta = int(open(readdlm,"ef.txt"))
+    #eta = int(open(readdlm,"ef.txt"))
     A::Array{Float64,1} = [-10.0, 100.0] # space of asset holdings -- can't find this in the PS?
     a_length::Int64 = 1000 # asset grid length, count
     a_grid::Array{Float64,1} = range(start=A[1],length=a_length,stop=A[2]) # asset grid
@@ -34,17 +34,18 @@ end
 
 # Output
 mutable struct Output
-    valfunc::Array{Float64,2} # value function, assets x age
-    polfunc::Array{Float64,2} # policy function (capital/savings)
-    labfunc::Array{Float64,2} # policy function (labor choice)
+    valfunc::Array{Float64,3} # value function, assets x age
+    polfunc::Array{Float64,3} # policy function (capital/savings)
+    labfunc::Array{Float64,3} # policy function (labor choice)
 end
 
 # Initialize structures
-function Initialize()
-    # initialize struct with model primitives
-    input = Input()
-
-    return input
+function Initialize(input::Input)
+    @unpack a_length, N, Jr = input
+    valfunc = zeros(a_length,N,2)
+    polfunc = zeros(a_length,N,2)
+    labfunc = zeros(a_length,Jr-1,2)
+    return Output(valfunc,polfunc,labfunc)
 end
 
 # Worker utility function
@@ -65,6 +66,7 @@ function ur(c::Float64,γ::Float64,σ::Float64)
     end
 end
 
+#=
 function Bellman(input::Input,output::Output)
     @unpack valfunc
     @unpack β, z, γ,σ, eta, Π, A, a_length, a_grid = input 
@@ -101,27 +103,36 @@ function Value_Iteration(input::Input,output::Output; tol::Float64 = 1e-5)
         print("Iterations: " * string(counter) * '\n')
         # Nothing is returned -- the "result" of running this is an updated polfunc
     end
+=#
     
 
 # Solve retiree problem (backwards)
 function retiree(input::Input,output::Output)
-    @unpack γ, σ, a_length, a_grid = Input()
+    @unpack γ, σ, a_length, a_grid, N, Jr, r, b, β = input
 
     for j = N:-1:Jr
         for i = 1:a_length # iterate over possible asset states
+            max_val = -Inf
             if j == N # last period, no real choice to make
                 max_val = ur((1+r)*a_grid[i]+b,γ,σ)
             else
                 for i_next = 1:a_length # iterate over assets tomorrow choices
-                    v_next = output.valfunc[i_next,j+1]
+                    v_next = output.valfunc[i_next,j+1,1]
+                    val = ur((1+r)*a_grid[i]+b-a_grid[i_next],γ,σ) + β*v_next
+                    if val > max_val
+                        max_val = val
+                        output.polfunc[i,j,1] = a_grid[i_next]
+                        output.polfunc[i,j,2] = a_grid[i_next]
+                    end
                 end
             end
-            output.valfunc[i,j] = max_val
+            output.valfunc[i,j,1] = max_val
+            output.valfunc[i,j,2] = max_val
         end
-    end
-    
+    end    
 end
 
+#=
 # Solve worker problem (backwards, after retiree problem)
 function worker(input::Input,output::Output)
     @unpack γ, σ, eta, a_length, a_grid = Input()
@@ -146,3 +157,4 @@ function worker(input::Input,output::Output)
     end
 
 end
+=#
