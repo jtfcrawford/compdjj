@@ -6,6 +6,7 @@
 
 using Parameters
 using DelimitedFiles
+using Plots
 
 # Input - exogenous selections, also including grid parameters
 @with_kw struct Input
@@ -18,15 +19,14 @@ using DelimitedFiles
     θ::Float64 = 0.11 # proportional labor income tax
     γ::Float64 = 0.42 # weight on consumption
     σ::Float64 = 2.0 # coefficient of relative risk aversion
-    #zH::Float64 = 3.0 # high idiosyncratic productivity
-    #zL::Float64 = 0.5 # low idiosyncratic productivity
-    z::Array{Float64,1} = [3, 0.5]
+    z::Array{Float64,1} = [3.0, 0.5] # high/low idiosyncratic productivity
+    z_dist::Array{Float64,1} = vcat(fill(3.0,2037), fill(0.5,7963))
     β::Float64 = 0.97 # discount factor
     w::Float64 = 1.05 # wage
     r::Float64 = 0.05 # interest rate
     b::Float64 = 0.2 # social security benefit
     Π::Array{Float64,2} = [0.9261 0.07389; 0.0189 0.9811] # random productivity persistence probabilities
-    #eta = int(open(readdlm,"ef.txt"))
+    eta = open(readdlm,"ef.txt")
     A::Array{Float64,1} = [-10.0, 100.0] # space of asset holdings -- can't find this in the PS?
     a_length::Int64 = 1000 # asset grid length, count
     a_grid::Array{Float64,1} = range(start=A[1],length=a_length,stop=A[2]) # asset grid
@@ -64,47 +64,7 @@ function ur(c::Float64,γ::Float64,σ::Float64)
     else
         return -Inf
     end
-end
-
-#=
-function Bellman(input::Input,output::Output)
-    @unpack valfunc
-    @unpack β, z, γ,σ, eta, Π, A, a_length, a_grid = input 
-    v_next = zeros(a_length, 1) 
-    for z_index = 1:2, a_index = 1:a_length # loop over zH and zL, and over assets
-        z = zH 
-        z_curr = z[z_index] # still have to figure out how people receive their initial shock
-        a = a_grid[a_index]
-        candidate_max = -Inf 
-        for ap_index = 1:a_length
-            ap = a_grid[ap_index]
-            l = (γ*w*(1+θ)*z_curr*eta[j] - (1-γ)*((1+r)a)) / (w*(1-θ)*z_curr*eta[j])
-            val = uw(w*(1-θ)*z_curr*eta[j]*l*a_grid[i],l,γ,σ) + β*(Π[z_index, 1] * valfunc[ap_index, 1] + Π[z_index, 2] * valfunc[ap_index, 2])
-            if val > candidate_max
-                candidate_max = val
-                output.polfunc[a_index,e_index] = ap # Updating decision rule
-            end
-        end
-        v_next[a_index] = candidate_max
-    end 
-    return v_next
-end
-
-function Value_Iteration(input::Input,output::Output; tol::Float64 = 1e-5)
-    # This function re-runs the Bellman until sufficient convergence
-        error = 1000.0 
-        counter = 0
-        while error > tol
-            v_next = Bellman(input,output)  
-            error = maximum(abs.(v_next .- output.valfunc))
-            output.valfunc = v_next
-            counter = counter + 1
-        end
-        print("Iterations: " * string(counter) * '\n')
-        # Nothing is returned -- the "result" of running this is an updated polfunc
-    end
-=#
-    
+end    
 
 # Solve retiree problem (backwards)
 function retiree(input::Input,output::Output)
@@ -132,29 +92,35 @@ function retiree(input::Input,output::Output)
     end    
 end
 
-#=
-# Solve worker problem (backwards, after retiree problem)
+# Solve workers problem 
 function worker(input::Input,output::Output)
-    @unpack γ, σ, eta, a_length, a_grid = Input()
-
-    for j = Jr:-1:1
-        for i = 1:a_length # iterate over possible asset states
-            if j == Jr # retirement time, switches to solve the retiree problem?
-                retiree()
+    @unpack γ, σ, a_length, a_grid, N, Jr, r, b, β, w, θ, eta, z_dist, Π = input
+    @unpack valfunc = output
+    for j = Jr:-1:1 # looping backwards from retirement to work
+        for i = 1:a_length # first loop over asset states
+            max_val = -Inf # set our current max val to a low number
+            if j == Jr # if we are retiring, max val is the last result from retiree's problem
+                max_val = output.valfunc[i,j,1]
             else
-                error = 1000.0 
-                counter = 0
-                while error > tol
-                    v_next = Bellman(input,output)  
-                    error = maximum(abs.(v_next .- output.valfunc))
-                    output.valfunc = v_next
-                    counter = counter + 1
+                for i_next = 1:a_length # loop over assets tomorrow
+                    v_next = output.valfunc[i_next,j+1,1] # we know tomorrow's value would be this?
+                    z_next = rand(z_dist,1) # update productivity
+                    e = eta[j] * z_next[1]  # add age efficiency
+                    l = ( (γ*(1-θ)*e*w) - ((1-γ)*((1+r)*a_grid[i]+b-a_grid[i_next])) ) / ((1-θ)*w*e) # labor
+                    if z_next == 3.0 # if high productivity now, then we use Π_{HH} and Π_{LH}
+                        val = ur(w*(1-θ)*e*l*(1+r)*a_grid[i]+b-a_grid[i_next],γ,σ) + β * (Π[1,1] * valfunc[i_next, j, 1] + Π[2,1] * valfunc[i_next, j, 2])
+                    else # o/w we use Π_{HL} and Π_{LL}, HOWEVER!!! we're picking next period val? still have to figure out backwards here i think
+                        val = ur(w*(1-θ)*e*l*(1+r)*a_grid[i]+b-a_grid[i_next],γ,σ) + β * (Π[1,2] * valfunc[i_next, j, 1] + Π[2,2] * valfunc[i_next, j, 2])
+                    end
+                    if val > max_val
+                        max_val = val
+                        output.polfunc[i,j,1] = a_grid[i_next]
+                        output.polfunc[i,j,2] = a_grid[i_next]
+                    end
                 end
-                print("Iterations: " * string(counter) * '\n')
-                # Nothing is returned -- the "result" of running this is an updated polfunc
             end
-        end 
-    end
-
+            output.valfunc[i,j,1] = max_val
+            output.valfunc[i,j,2] = max_val
+        end
+    end    
 end
-=#
