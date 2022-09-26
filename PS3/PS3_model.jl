@@ -37,6 +37,7 @@ mutable struct Output
     valfunc::Array{Float64,3} # value function, assets x age
     polfunc::Array{Float64,3} # policy function (capital/savings)
     labfunc::Array{Float64,3} # policy function (labor choice)
+    μ::Array{Float64,3} # steady-state distribution of agents over age, productivity, assets
 end
 
 # Initialize structures
@@ -45,7 +46,8 @@ function Initialize(input::Input)
     valfunc = zeros(a_length,N,2)
     polfunc = zeros(a_length,N,2)
     labfunc = zeros(a_length,Jr-1,2)
-    return Output(valfunc,polfunc,labfunc)
+    μ = zeros(a_length,N,2)
+    return Output(valfunc,polfunc,labfunc,μ)
 end
 
 # Worker utility function
@@ -92,35 +94,89 @@ function retiree(input::Input,output::Output)
     end    
 end
 
-# Solve workers problem 
+# Solve workers problem, old version
+#=
 function worker(input::Input,output::Output)
     @unpack γ, σ, a_length, a_grid, N, Jr, r, b, β, w, θ, eta, z_dist, Π = input
     @unpack valfunc = output
     for j = Jr:-1:1 # looping backwards from retirement to work
-        for i = 1:a_length # first loop over asset states
-            max_val = -Inf # set our current max val to a low number
-            if j == Jr # if we are retiring, max val is the last result from retiree's problem
-                max_val = output.valfunc[i,j,1]
-            else
-                for i_next = 1:a_length # loop over assets tomorrow
-                    v_next = output.valfunc[i_next,j+1,1] # we know tomorrow's value would be this?
-                    z_next = rand(z_dist,1) # update productivity
-                    e = eta[j] * z_next[1]  # add age efficiency
-                    l = ( (γ*(1-θ)*e*w) - ((1-γ)*((1+r)*a_grid[i]+b-a_grid[i_next])) ) / ((1-θ)*w*e) # labor
-                    if z_next == 3.0 # if high productivity now, then we use Π_{HH} and Π_{LH}
-                        val = ur(w*(1-θ)*e*l*(1+r)*a_grid[i]+b-a_grid[i_next],γ,σ) + β * (Π[1,1] * valfunc[i_next, j, 1] + Π[2,1] * valfunc[i_next, j, 2])
-                    else # o/w we use Π_{HL} and Π_{LL}, HOWEVER!!! we're picking next period val? still have to figure out backwards here i think
-                        val = ur(w*(1-θ)*e*l*(1+r)*a_grid[i]+b-a_grid[i_next],γ,σ) + β * (Π[1,2] * valfunc[i_next, j, 1] + Π[2,2] * valfunc[i_next, j, 2])
-                    end
-                    if val > max_val
-                        max_val = val
-                        output.polfunc[i,j,1] = a_grid[i_next]
-                        output.polfunc[i,j,2] = a_grid[i_next]
+            for i = 1:a_length # first loop over asset states
+                max_val = -Inf # set our current max val to a low number
+                if j == Jr # if we are retiring, max val is the last result from retiree's problem
+                    max_val = output.valfunc[i,j,1]
+                else
+                    for i_next = 1:a_length # loop over assets tomorrow
+                        v_next = output.valfunc[i_next,j+1,1] # we know tomorrow's value would be this?
+                        z_next = rand(z_dist,1) # update productivity
+                        e = eta[j] * z_next[1]  # add age efficiency
+                        l = ( (γ*(1-θ)*e*w) - ((1-γ)*((1+r)*a_grid[i]+b-a_grid[i_next])) ) / ((1-θ)*w*e) # labor
+                        if z_next == 3.0 # if high productivity now, then we use Π_{HH} and Π_{LH}
+                            val = ur(w*(1-θ)*e*l*(1+r)*a_grid[i]+b-a_grid[i_next],γ,σ) + β * (Π[1,1] * valfunc[i_next, j, 1] + Π[2,1] * valfunc[i_next, j, 2])
+                        else # o/w we use Π_{HL} and Π_{LL}, HOWEVER!!! we're picking next period val? still have to figure out backwards here i think
+                            val = ur(w*(1-θ)*e*l*(1+r)*a_grid[i]+b-a_grid[i_next],γ,σ) + β * (Π[1,2] * valfunc[i_next, j, 1] + Π[2,2] * valfunc[i_next, j, 2])
+                        end
+                        if val > max_val
+                            max_val = val
+                            output.polfunc[i,j,1] = a_grid[i_next]
+                            output.polfunc[i,j,2] = a_grid[i_next]
+                        end
                     end
                 end
+                output.valfunc[i,j,1] = max_val
+                output.valfunc[i,j,2] = max_val
             end
-            output.valfunc[i,j,1] = max_val
-            output.valfunc[i,j,2] = max_val
+    end    
+end
+=#
+function worker(input::Input,output::Output)
+    @unpack γ, σ, a_length, a_grid, N, Jr, r, b, β, w, θ, eta, z_dist, z, Π = input
+    for j = (Jr-1):-1:1 # looping backwards from retirement to work
+        for i_z = 1:2
+            for i = 1:a_length # first loop over asset states
+                max_val = -Inf # set our current max val to a low number
+                for i_next = 1:a_length # loop over assets tomorrow
+                    v_next = Π[i_z,1] * output.valfunc[i_next,j+1,1] + Π[i_z,2] * output.valfunc[i_next,j+1,2]
+                    e = eta[j] * z[i_z]  # add age efficiency
+                    l = ( (γ*(1-θ)*e*w) - ((1-γ)*((1+r)*a_grid[i]+b-a_grid[i_next])) ) / ((1-θ)*w*e) # labor
+                    val = uw(w*(1-θ)*e*l+(1+r)*a_grid[i]-a_grid[i_next],l,γ,σ) + β*v_next
+                    if val > max_val
+                        max_val = val
+                        output.polfunc[i,j,i_z] = a_grid[i_next]
+                        output.labfunc[i,j,i_z] = l
+                    end
+                end
+                output.valfunc[i,j,i_z] = max_val
+            end
         end
     end    
+end
+
+function distribution(input::Input,output::Output)
+    @unpack N, Π, a_length, a_grid, n = input
+
+    # Not sure if this will work, but I'm trying to build the dist one dimension at a time
+
+    # First age
+    μ_age = ones(N)
+    for j=2:N
+        μ_age[j] = μ_age[j-1] / (1+n)
+    end
+    μ_age = μ_age / sum(μ_age)
+
+    # Adding in productivity
+    μ_age_z = ones(N,2)
+    μ_age_z[1,1] = 0.2037  
+    μ_age_z[1,2] = 0.7963
+    for j=2:N
+        μ_age_z[j,1] = μ_age_z[j-1,1]*Π[1,1] + μ_age_z[j-1,2]*Π[2,1] # Letting z evolve
+        μ_age_z[j,2] = μ_age_z[j-1,2]*Π[2,2] + μ_age_z[j-1,1]*Π[1,1]
+        μ_age_z[j,1] = μ_age_z[j,1] / (μ_age_z[j,1] + μ_age_z[j,2]) # Normalize per j
+        μ_age_z[j,2] = μ_age_z[j,2] / (μ_age_z[j,1] + μ_age_z[j,2])
+        μ_age_z[j,1] = μ_age_z[j,1]*μ_age[j] # Multiply by age dist to get cross z/j dist
+        μ_age_z[j,2] = μ_age_z[j,2]*μ_age[j]
+    end
+
+    return μ_age_z # just returning for troubleshooting
+
+    # Finally assets
 end
