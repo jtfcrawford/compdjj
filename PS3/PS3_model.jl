@@ -10,26 +10,38 @@ using Plots
 
 # Input - exogenous selections, also including grid parameters
 @with_kw struct Input
-    initial_a::Float64 = 0
+    # Production parameters
     δ::Float64 = 0.06 # depreciation rate
     α::Float64 = 0.36 # capital share
+    
+    # HH life cycle parameters
     N::Int64 = 66 # number of periods agents live for
     n::Float64 = 0.011 # population growth rate
     Jr::Int64 = 46 # retirement age
-    θ::Float64 = 0.11 # proportional labor income tax
+    eta = open(readdlm,"ef.txt")
+    
+    # HH utility function parameters
     γ::Float64 = 0.42 # weight on consumption
     σ::Float64 = 2.0 # coefficient of relative risk aversion
-    z::Array{Float64,1} = [3.0, 0.5] # high/low idiosyncratic productivity
-    z_dist::Array{Float64,1} = vcat(fill(3.0,2037), fill(0.5,7963))
     β::Float64 = 0.97 # discount factor
+    
+    # HH productivity Markov chain
+    z::Array{Float64,1} = [3.0, 0.5] # high/low idiosyncratic productivity
+    z_length::Int64 = length(z)
+    z_dist::Array{Float64,1} = vcat(fill(3.0,2037), fill(0.5,7963))
+    Π::Array{Float64,2} = [0.9261 0.07389; 0.0189 0.9811] # random productivity persistence probabilities
+    Π_ergodic::Array{Float64} = [0.2037, 0.7963] # stationary distribution of the Markov chain z
+    
+    # Asset grid
+    A::Array{Float64,1} = [0.0, 100.0] # space of asset holdings -- can't find this in the PS?
+    a_length::Int64 = 1000 # asset grid length, count
+    a_grid::Array{Float64,1} = range(start=A[1],length=a_length,stop=A[2]) # asset grid
+    
+    # Taxes and prices faced by HHs
+    θ::Float64 = 0.11 # proportional labor income tax
     w::Float64 = 1.05 # wage
     r::Float64 = 0.05 # interest rate
     b::Float64 = 0.2 # social security benefit
-    Π::Array{Float64,2} = [0.9261 0.07389; 0.0189 0.9811] # random productivity persistence probabilities
-    eta = open(readdlm,"ef.txt")
-    A::Array{Float64,1} = [-10.0, 100.0] # space of asset holdings -- can't find this in the PS?
-    a_length::Int64 = 1000 # asset grid length, count
-    a_grid::Array{Float64,1} = range(start=A[1],length=a_length,stop=A[2]) # asset grid
 end
 
 # Output
@@ -37,7 +49,13 @@ mutable struct Output
     valfunc::Array{Float64,3} # value function, assets x age
     polfunc::Array{Float64,3} # policy function (capital/savings)
     labfunc::Array{Float64,3} # policy function (labor choice)
-    μ::Array{Float64,3} # steady-state distribution of agents over age, productivity, assets
+    F::Array{Float64,3} # steady-state distribution of agents over age, productivity, assets
+    μ_age::Array{Float64} # relative size of age cohorts
+    K_SS::Float64 # steady-state capital
+    L_SS::Float64 # steady-state labor
+    r_SS::Float64 # steady-state interest rate
+    w_SS::Float64 # steady-state wage
+    b_SS::Float64 # steady-state pension benefit
 end
 
 # Initialize structures
@@ -46,8 +64,21 @@ function Initialize(input::Input)
     valfunc = zeros(a_length,N,2)
     polfunc = zeros(a_length,N,2)
     labfunc = zeros(a_length,Jr-1,2)
-    μ = zeros(a_length,N,2)
-    return Output(valfunc,polfunc,labfunc,μ)
+    
+    # distribution over assets, age, states
+    F = zeros(a_length, N, 2)
+
+    # relative size of age cohorts
+    μ_age = zeros(N)
+    
+    # initial guesses for steady-state capital, labor, and prices/benefits
+    K_SS = 1
+    L_SS = 1
+    r_SS = input.r
+    w_SS = input.w
+    b_SS = input.b
+    
+    return Output(valfunc,polfunc,labfunc,F, μ_age, K_SS, L_SS, w_SS, r_SS, b_SS)
 end
 
 # Worker utility function
@@ -129,7 +160,7 @@ function worker(input::Input,output::Output)
 end
 =#
 function worker(input::Input,output::Output)
-    @unpack γ, σ, a_length, a_grid, N, Jr, r, b, β, w, θ, eta, z_dist, z, Π = input
+    @unpack γ, σ, a_length, a_grid, N, Jr, r, b, β, w, θ, eta, z, Π = input
     for j = (Jr-1):-1:1 # looping backwards from retirement to work
         for i_z = 1:2
             for i = 1:a_length # first loop over asset states
@@ -151,32 +182,109 @@ function worker(input::Input,output::Output)
     end    
 end
 
-function distribution(input::Input,output::Output)
-    @unpack N, Π, a_length, a_grid, n = input
+# Compute the steady-state distribution of agents over age (j), productivity (z), asset holdings (a): F_j(z, a)
+function distribution(input::Input, output::Output)
+    @unpack N, Π, a_length, a_grid, n, z_length, Π_ergodic = input
+    @unpack polfunc = output
 
-    # Not sure if this will work, but I'm trying to build the dist one dimension at a time
-
-    # First age
+    # Step 1: find relative sizes of each cohort of each age j
     μ_age = ones(N)
     for j=2:N
         μ_age[j] = μ_age[j-1] / (1+n)
     end
     μ_age = μ_age / sum(μ_age)
+    output.μ_age = μ_age
 
-    # Adding in productivity
-    μ_age_z = ones(N,2)
-    μ_age_z[1,1] = 0.2037  
-    μ_age_z[1,2] = 0.7963
-    for j=2:N
-        μ_age_z[j,1] = μ_age_z[j-1,1]*Π[1,1] + μ_age_z[j-1,2]*Π[2,1] # Letting z evolve
-        μ_age_z[j,2] = μ_age_z[j-1,2]*Π[2,2] + μ_age_z[j-1,1]*Π[1,1]
-        μ_age_z[j,1] = μ_age_z[j,1] / (μ_age_z[j,1] + μ_age_z[j,2]) # Normalize per j
-        μ_age_z[j,2] = μ_age_z[j,2] / (μ_age_z[j,1] + μ_age_z[j,2])
-        μ_age_z[j,1] = μ_age_z[j,1]*μ_age[j] # Multiply by age dist to get cross z/j dist
-        μ_age_z[j,2] = μ_age_z[j,2]*μ_age[j]
+    # Step 2: compute wealth distribution for each age cohort, using policy rules + distribution of prev cohort
+    # age j=1: 
+    @assert a_grid[1] == 0.0
+    F = zeros(a_length, N, z_length)
+    F[1, 1, 1] = μ_age[1] * Π_ergodic[1]
+    F[1, 1, 2] = μ_age[1] * Π_ergodic[2]
+
+    # age j>1: use decision rules + prev cohort's distribution of assets
+    @time for j=2:N, i=1:a_length, s=1:z_length
+        # Mathematically, this computes (for each age j, asset level (today) i, state (today) s):
+        # μ_age[j] * { sum over i', s':  F[i', j-1, s'] * Indicator(polfunc[i', s', j-1] == a_grid[i]) * Π[s', s]  }
+        
+        temp = F[:, j - 1, :] .* (polfunc[:, j - 1, :] .== a_grid[i])
+        #     # 1000x2 matrix
+        #     # Each entry (i',s') is the mass of people at age (j-1) who had assets a_grid[i'] & were at state z[s'] last period,
+        #     # and optimally chose a_grid[i] for the next period
+        #     # i.e., temp[i', s'] = F[i', j-1, s'] * Indicator(polfunc[i', s', j-1] == a_grid[i])
+
+        F[i, j, s] = 1/(1+n) * sum(temp' .* Π[:, s])
+        #     # Multiply each term in the prev matrix by the fraction who transition from state s' (at age j-1) to state s (age j)
+        #     # and then sum over s'. Finally, multiply this by the size of age cohort j
     end
 
-    return μ_age_z # just returning for troubleshooting
+    output.F = F
+end
 
-    # Finally assets
+# Update current guess for steady-state aggregate labor and capital K_SS and L_SS
+function K_L_update(input::Input, output::Output)
+    @unpack θ, Jr, N, a_grid, a_length, z_length, eta, z = input
+    @unpack w_SS, L_SS, μ_age, F, labfunc = output
+
+    # compute new guess for steady-state capital -- SHOULD VECTORIZE THIS
+    K_next = sum(F .* a_grid)
+    
+    # yields same answer, but commenting out b/c not vectorized, so it's slow when we iterate
+    # K_next_check = 0
+    # for j=1:N, i=1:a_length, z=1:z_length
+    #     K_next_check += F[i, j, z] * a_grid[i]
+    # end
+
+    # e[z, j]: earnings in state z at age j=1, ..., (Jr - 1) (2 x 45 matrix)
+    e = eta' .* z
+
+    # compute new guess for steady-state labor
+    sum1 = sum(labfunc[:, :, 1] .* e[1, :]' .* F[:, 1:(Jr-1), 1]) # dot product for state z=1
+    sum2 = sum(labfunc[:, :, 2] .* e[2, :]' .* F[:, 1:(Jr-1), 2]) # dot product for state z=2
+    L_next = sum1 + sum2
+
+    # yields same answer, but commenting out b/c not vectorized
+    # L_next_check = 0
+    # for j=1:(Jr-1), i=1:a_length, z=1:z_length
+    #     L_next_check += F[i, j, z]*e[z, j]*labfunc[i, j, z]
+    # end
+
+    return K_next, L_next
+end
+
+# Repeatedly update guesses for K and L until convergence, then compute SS pension benefit + wages
+function K_L_iterate(input::Input, output::Output; tol::Float64=1e-5, maxiter::Int64=1000)
+    err = 1000.0
+
+    counter = 0
+
+    while err > tol && counter < maxiter
+        # println("iteration $counter")
+        # compute next guess
+        K_next, L_next = K_L_update(input, output)
+
+        # calculate error
+        err = max( abs(K_next - output.K_SS), abs(L_next - output.K_SS) )
+        
+        # replace current guesses w/ updated guesses
+        output.K_SS = K_next
+        output.L_SS = L_next
+
+        counter += 1
+    end
+
+    if counter == maxiter
+        println("Reached max number of iterations ($maxiter) for K, L convergence.")
+    else
+        println("Guesses for K_SS and L_SS converged in $counter iterations!")
+    end
+
+    # after convergence, compute SS prices and pension benefit
+    @unpack α, Jr, N, θ = input
+    @unpack μ_age, K_SS, L_SS = output
+
+    output.w_SS = (1-α) * (K_SS^α) * (L_SS^(-α)) # wage = MPL
+    output.r_SS = α * (K_SS^(α - 1)) * (L_SS^(1 - α)) # interest = MPK
+
+    output.b_SS = (θ * output.w_SS * L_SS) / sum(μ_age[Jr:N])
 end
