@@ -100,8 +100,12 @@ function ur(c::Float64,γ::Float64,σ::Float64)
 end    
 
 # Solve retiree problem (backwards)
-function retiree(input::Input,output::Output)
+function retiree(input::Input,output::Output;updating::Bool=false)
     @unpack γ, σ, a_length, a_grid, N, Jr, r, b, β = input
+
+    if updating == true
+        r = output.r_SS
+    end
 
     for j = N:-1:Jr
         for i = 1:a_length # iterate over possible asset states
@@ -125,42 +129,14 @@ function retiree(input::Input,output::Output)
     end    
 end
 
-# Solve workers problem, old version
-#=
-function worker(input::Input,output::Output)
-    @unpack γ, σ, a_length, a_grid, N, Jr, r, b, β, w, θ, eta, z_dist, Π = input
-    @unpack valfunc = output
-    for j = Jr:-1:1 # looping backwards from retirement to work
-            for i = 1:a_length # first loop over asset states
-                max_val = -Inf # set our current max val to a low number
-                if j == Jr # if we are retiring, max val is the last result from retiree's problem
-                    max_val = output.valfunc[i,j,1]
-                else
-                    for i_next = 1:a_length # loop over assets tomorrow
-                        v_next = output.valfunc[i_next,j+1,1] # we know tomorrow's value would be this?
-                        z_next = rand(z_dist,1) # update productivity
-                        e = eta[j] * z_next[1]  # add age efficiency
-                        l = ( (γ*(1-θ)*e*w) - ((1-γ)*((1+r)*a_grid[i]+b-a_grid[i_next])) ) / ((1-θ)*w*e) # labor
-                        if z_next == 3.0 # if high productivity now, then we use Π_{HH} and Π_{LH}
-                            val = ur(w*(1-θ)*e*l*(1+r)*a_grid[i]+b-a_grid[i_next],γ,σ) + β * (Π[1,1] * valfunc[i_next, j, 1] + Π[2,1] * valfunc[i_next, j, 2])
-                        else # o/w we use Π_{HL} and Π_{LL}, HOWEVER!!! we're picking next period val? still have to figure out backwards here i think
-                            val = ur(w*(1-θ)*e*l*(1+r)*a_grid[i]+b-a_grid[i_next],γ,σ) + β * (Π[1,2] * valfunc[i_next, j, 1] + Π[2,2] * valfunc[i_next, j, 2])
-                        end
-                        if val > max_val
-                            max_val = val
-                            output.polfunc[i,j,1] = a_grid[i_next]
-                            output.polfunc[i,j,2] = a_grid[i_next]
-                        end
-                    end
-                end
-                output.valfunc[i,j,1] = max_val
-                output.valfunc[i,j,2] = max_val
-            end
-    end    
-end
-=#
-function worker(input::Input,output::Output)
+function worker(input::Input,output::Output;updating::Bool=false)
     @unpack γ, σ, a_length, a_grid, N, Jr, r, b, β, w, θ, eta, z, Π = input
+
+    if updating == true
+        r = output.r_SS
+        w = output.w_SS
+    end
+
     for j = (Jr-1):-1:1 # looping backwards from retirement to work
         for i_z = 1:2
             for i = 1:a_length # first loop over asset states
@@ -168,7 +144,8 @@ function worker(input::Input,output::Output)
                 for i_next = 1:a_length # loop over assets tomorrow
                     v_next = Π[i_z,1] * output.valfunc[i_next,j+1,1] + Π[i_z,2] * output.valfunc[i_next,j+1,2]
                     e = eta[j] * z[i_z]  # add age efficiency
-                    l = ( (γ*(1-θ)*e*w) - ((1-γ)*((1+r)*a_grid[i]+b-a_grid[i_next])) ) / ((1-θ)*w*e) # labor
+                    l = ((γ*(1-θ)*e*w) - ((1-γ)*((1+r)*a_grid[i]-a_grid[i_next]))) / ((1-θ)*w*e) # labor
+                    l = min(1.0,max(0.0,l))
                     val = uw(w*(1-θ)*e*l+(1+r)*a_grid[i]-a_grid[i_next],l,γ,σ) + β*v_next
                     if val > max_val
                         max_val = val
@@ -224,10 +201,10 @@ end
 # Update current guess for steady-state aggregate labor and capital K_SS and L_SS
 function K_L_update(input::Input, output::Output)
     @unpack θ, Jr, N, a_grid, a_length, z_length, eta, z = input
-    @unpack w_SS, L_SS, μ_age, F, labfunc = output
+    #@unpack w_SS, L_SS, μ_age, F, labfunc = output
 
     # compute new guess for steady-state capital -- SHOULD VECTORIZE THIS
-    K_next = sum(F .* a_grid)
+    K_next = sum(output.F .* a_grid)
     
     # yields same answer, but commenting out b/c not vectorized, so it's slow when we iterate
     # K_next_check = 0
@@ -239,8 +216,8 @@ function K_L_update(input::Input, output::Output)
     e = eta' .* z
 
     # compute new guess for steady-state labor
-    sum1 = sum(labfunc[:, :, 1] .* e[1, :]' .* F[:, 1:(Jr-1), 1]) # dot product for state z=1
-    sum2 = sum(labfunc[:, :, 2] .* e[2, :]' .* F[:, 1:(Jr-1), 2]) # dot product for state z=2
+    sum1 = sum(output.labfunc[:, :, 1] .* e[1, :]' .* output.F[:, 1:(Jr-1), 1]) # dot product for state z=1
+    sum2 = sum(output.labfunc[:, :, 2] .* e[2, :]' .* output.F[:, 1:(Jr-1), 2]) # dot product for state z=2
     L_next = sum1 + sum2
 
     # yields same answer, but commenting out b/c not vectorized
@@ -253,24 +230,39 @@ function K_L_update(input::Input, output::Output)
 end
 
 # Repeatedly update guesses for K and L until convergence, then compute SS pension benefit + wages
-function K_L_iterate(input::Input, output::Output; tol::Float64=1e-5, maxiter::Int64=1000)
+function K_L_iterate(input::Input, output::Output; tol::Float64=1e-3, maxiter::Int64=10000)
+    @unpack α, Jr, N, θ = input
     err = 1000.0
 
     counter = 0
 
     while err > tol && counter < maxiter
+        
+        # Resolve model with current prices
+        retiree(input,output;updating=true)
+        worker(input,output;updating=true)
+        distribution(input,output)
+
         # println("iteration $counter")
         # compute next guess
         K_next, L_next = K_L_update(input, output)
 
         # calculate error
-        err = max( abs(K_next - output.K_SS), abs(L_next - output.K_SS) )
+        err = max(abs(K_next - output.K_SS), abs(L_next - output.L_SS))
+        if mod(counter,5) == 0
+            println("error: " * string(err))
+        end
         
         # replace current guesses w/ updated guesses
         output.K_SS = K_next
         output.L_SS = L_next
 
+        # Update prices
+        output.w_SS = (1-α) * (K_next^α) * (L_next^(-α)) # wage = MPL
+        output.r_SS = α * (K_next^(α - 1)) * (L_next^(1 - α)) # interest = MPK
+
         counter += 1
+        #println(counter)
     end
 
     if counter == maxiter
@@ -280,11 +272,10 @@ function K_L_iterate(input::Input, output::Output; tol::Float64=1e-5, maxiter::I
     end
 
     # after convergence, compute SS prices and pension benefit
-    @unpack α, Jr, N, θ = input
-    @unpack μ_age, K_SS, L_SS = output
+    #@unpack μ_age, K_SS, L_SS = output
 
-    output.w_SS = (1-α) * (K_SS^α) * (L_SS^(-α)) # wage = MPL
-    output.r_SS = α * (K_SS^(α - 1)) * (L_SS^(1 - α)) # interest = MPK
+    output.w_SS = (1-α) * (output.K_SS^α) * (output.L_SS^(-α)) # wage = MPL
+    output.r_SS = α * (output.K_SS^(α - 1)) * (output.L_SS^(1 - α)) # interest = MPK
 
-    output.b_SS = (θ * output.w_SS * L_SS) / sum(μ_age[Jr:N])
+    output.b_SS = (θ * output.w_SS * output.L_SS) / sum(output.μ_age[Jr:N])
 end
