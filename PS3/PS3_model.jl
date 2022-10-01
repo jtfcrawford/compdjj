@@ -34,7 +34,7 @@ using Plots
     
     # Asset grid
     A::Array{Float64,1} = [0.0, 100.0] # space of asset holdings -- can't find this in the PS?
-    a_length::Int64 = 1000 # asset grid length, count
+    a_length::Int64 = 300 # asset grid length, count
     a_grid::Array{Float64,1} = range(start=A[1],length=a_length,stop=A[2]) # asset grid
     
     # Taxes and prices faced by HHs
@@ -56,6 +56,7 @@ mutable struct Output
     r_SS::Float64 # steady-state interest rate
     w_SS::Float64 # steady-state wage
     b_SS::Float64 # steady-state pension benefit
+    welfare::Float64 # societal welfare
 end
 
 # Initialize structures
@@ -77,8 +78,10 @@ function Initialize(input::Input)
     r_SS = input.r
     w_SS = input.w
     b_SS = input.b
+
+    welfare = 0
     
-    return Output(valfunc,polfunc,labfunc,F, μ_age, K_SS, L_SS, w_SS, r_SS, b_SS)
+    return Output(valfunc,polfunc,labfunc,F, μ_age, K_SS, L_SS, w_SS, r_SS, b_SS, welfare)
 end
 
 # Worker utility function
@@ -105,6 +108,7 @@ function retiree(input::Input,output::Output;updating::Bool=false)
 
     if updating == true
         r = output.r_SS
+        b = output.b_SS
     end
 
     for j = N:-1:Jr
@@ -232,37 +236,45 @@ end
 # Repeatedly update guesses for K and L until convergence, then compute SS pension benefit + wages
 function K_L_iterate(input::Input, output::Output; tol::Float64=1e-3, maxiter::Int64=10000)
     @unpack α, Jr, N, θ = input
+    
     err = 1000.0
 
     counter = 0
 
     while err > tol && counter < maxiter
+        println("***** Iteration $counter:")
         
-        # Resolve model with current prices
-        retiree(input,output;updating=true)
-        worker(input,output;updating=true)
-        distribution(input,output)
+        # (1) Solve retiree and worker problems with current prices
+        println("Solving retiree problem")
+        @elapsed retiree(input, output; updating=true)
+        
+        println("Solving worker problem")
+        @elapsed worker(input, output; updating=true)
+        
+        # (2) Compute distribution of assets and productivity states across ages
+        println("Solving for stationary distribution F")
+        @elapsed distribution(input, output)
+        
+        # (3) Compute aggregate K and L implied by results from (1) and (2)
+        println("Updating capital and labor guesses")
+        @elapsed K_next, L_next = K_L_update(input, output)
 
-        # println("iteration $counter")
-        # compute next guess
-        K_next, L_next = K_L_update(input, output)
-
-        # calculate error
+        # Calculate difference b/w prev and current guesses for SS K and L
         err = max(abs(K_next - output.K_SS), abs(L_next - output.L_SS))
         if mod(counter,5) == 0
-            println("error: " * string(err))
+            println("Error at iteration $counter: " * string(err))
         end
         
-        # replace current guesses w/ updated guesses
-        output.K_SS = K_next
-        output.L_SS = L_next
+        # Update guesses for SS K and L
+        output.K_SS = 0.5 * K_next + 0.5 * output.K_SS
+        output.L_SS = 0.5 * L_next + 0.5 * output.L_SS
 
-        # Update prices
-        output.w_SS = (1-α) * (K_next^α) * (L_next^(-α)) # wage = MPL
-        output.r_SS = α * (K_next^(α - 1)) * (L_next^(1 - α)) # interest = MPK
+        # Update prices based on updated K and L guesses
+        output.w_SS = (1-α) * (output.K_SS^α) * (output.L_SS^(-α)) # wage = MPL
+        output.r_SS = α * (output.K_SS^(α - 1)) * (output.L_SS^(1 - α)) # interest = MPK
+        output.b_SS = (θ * output.w_SS * output.L_SS) / sum(output.μ_age[Jr:N])
 
         counter += 1
-        #println(counter)
     end
 
     if counter == maxiter
@@ -271,11 +283,8 @@ function K_L_iterate(input::Input, output::Output; tol::Float64=1e-3, maxiter::I
         println("Guesses for K_SS and L_SS converged in $counter iterations!")
     end
 
-    # after convergence, compute SS prices and pension benefit
-    #@unpack μ_age, K_SS, L_SS = output
-
-    output.w_SS = (1-α) * (output.K_SS^α) * (output.L_SS^(-α)) # wage = MPL
-    output.r_SS = α * (output.K_SS^(α - 1)) * (output.L_SS^(1 - α)) # interest = MPK
-
-    output.b_SS = (θ * output.w_SS * output.L_SS) / sum(output.μ_age[Jr:N])
+    # Calculate welfare
+    welfare = output.valfunc .* output.F
+    welfare = sum(welfare[isfinite.(welfare)])
+    output.welfare = welfare
 end

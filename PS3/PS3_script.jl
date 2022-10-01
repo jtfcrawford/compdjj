@@ -24,12 +24,6 @@ retiree(input,output)
 worker(input,output)
 println("Solved retiree and worker problems.")
 
-# compute stationary distribution F_j(a,z)
-distribution(input,output)
-
-# iterate to get SS capital, labor, prices, pension benefit
-K_L_iterate(input, output)
-
 # value functions
 using Plots
 @unpack a_grid = input
@@ -47,4 +41,74 @@ plot(a_grid, [output.polfunc[:,20,1],output.polfunc[:,20,2],
     legend=:topleft, linewidth=2)
 savefig("PS03_polfunc_2050.png")
 
+# compute stationary distribution F_j(a,z)
+distribution(input,output)
+
+# iterate to get SS capital, labor, prices, pension benefit
+K_L_iterate(input, output)
+
+# results - benchmark
+println("Benchmark model w/ SS:")
+println("Reminder, population growth = $(input.n)")
+println("capital K: $(output.K_SS)")
+println("labor L: $(output.L_SS)")
+println("wage w: $(output.w_SS)")
+println("interest r: $(output.r_SS)")
+println("pension benefit b: $(output.b_SS)")
+println("welfare: $(output.welfare)")
+
+# Repeat, benchmark w/o social security
+input = Input(θ=0)
+output = Initialize(input)
+retiree(input,output)
+worker(input,output)
+println("Solved retiree and worker problems.")
+distribution(input,output)
+K_L_iterate(input, output)
+# results - benchmark w/o social security
+println("Benchmark model w/o SS:")
+println("Reminder, population growth = $(input.n)")
+println("capital K: $(output.K_SS)")
+println("labor L: $(output.L_SS)")
+println("wage w: $(output.w_SS)")
+println("interest r: $(output.r_SS)")
+println("pension benefit b: $(output.b_SS)")
+println("welfare: $(output.welfare)")
+
 println("Done!")
+
+# Repeat, no risk w/ social security
+input = Input(z=[0.5, 0.5])
+output = Initialize(input)
+retiree(input,output)
+worker(input,output)
+println("Solved retiree and worker problems.")
+distribution(input,output)
+K_L_iterate(input, output)
+# results - no risk w/ social security
+println("No risk model w/ SS:")
+println("Reminder, population growth = $(input.n)")
+println("capital K: $(output.K_SS)")
+println("labor L: $(output.L_SS)")
+println("wage w: $(output.w_SS)")
+println("interest r: $(output.r_SS)")
+println("pension benefit b: $(output.b_SS)")
+println("welfare: $(output.welfare)")
+
+# Repeat, no risk w/o social security
+input = Input(z=[0.5, 0.5],θ=0)
+output = Initialize(input)
+retiree(input,output)
+worker(input,output)
+println("Solved retiree and worker problems.")
+distribution(input,output)
+K_L_iterate(input, output)
+# results - no risk w/o social security
+println("No risk model w/o SS:")
+println("Reminder, population growth = $(input.n)")
+println("capital K: $(output.K_SS)")
+println("labor L: $(output.L_SS)")
+println("wage w: $(output.w_SS)")
+println("interest r: $(output.r_SS)")
+println("pension benefit b: $(output.b_SS)")
+println("welfare: $(output.welfare)")
