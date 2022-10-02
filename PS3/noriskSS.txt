@@ -1,0 +1,8 @@
+No risk model w/ SS:
+Reminder, population growth = 0.011
+capital K: 2.3177947753854715
+labor L: 0.15124828436092622
+wage w: 1.709694057096675
+interest r: 0.0627561664695497
+pension benefit b: 0.11659119743772957
+welfare: -36.454070896945254

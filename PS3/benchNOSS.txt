@@ -1,0 +1,8 @@
+Benchmark model w/o SS:
+Reminder, population growth = 0.011
+capital K: 9.080611478442137
+labor L: 0.33913190654775843
+wage w: 2.0901078359769305
+interest r: 0.043908113407976686
+pension benefit b: 0.0
+welfare: -28.617264623565887

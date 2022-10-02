@@ -28,13 +28,12 @@ using Plots
     # HH productivity Markov chain
     z::Array{Float64,1} = [3.0, 0.5] # high/low idiosyncratic productivity
     z_length::Int64 = length(z)
-    z_dist::Array{Float64,1} = vcat(fill(3.0,2037), fill(0.5,7963))
     Π::Array{Float64,2} = [0.9261 0.07389; 0.0189 0.9811] # random productivity persistence probabilities
     Π_ergodic::Array{Float64} = [0.2037, 0.7963] # stationary distribution of the Markov chain z
     
     # Asset grid
-    A::Array{Float64,1} = [0.0, 100.0] # space of asset holdings -- can't find this in the PS?
-    a_length::Int64 = 300 # asset grid length, count
+    A::Array{Float64,1} = [0.0, 40.0] # space of asset holdings -- can't find this in the PS?
+    a_length::Int64 = 400 # asset grid length, count
     a_grid::Array{Float64,1} = range(start=A[1],length=a_length,stop=A[2]) # asset grid
     
     # Taxes and prices faced by HHs
@@ -73,7 +72,7 @@ function Initialize(input::Input)
     μ_age = zeros(N)
     
     # initial guesses for steady-state capital, labor, and prices/benefits
-    K_SS = 1
+    K_SS = 10
     L_SS = 1
     r_SS = input.r
     w_SS = input.w
@@ -184,7 +183,7 @@ function distribution(input::Input, output::Output)
     F[1, 1, 2] = μ_age[1] * Π_ergodic[2]
 
     # age j>1: use decision rules + prev cohort's distribution of assets
-    @time for j=2:N, i=1:a_length, s=1:z_length
+    for j=2:N, i=1:a_length, s=1:z_length
         # Mathematically, this computes (for each age j, asset level (today) i, state (today) s):
         # μ_age[j] * { sum over i', s':  F[i', j-1, s'] * Indicator(polfunc[i', s', j-1] == a_grid[i]) * Π[s', s]  }
         
@@ -234,7 +233,7 @@ function K_L_update(input::Input, output::Output)
 end
 
 # Repeatedly update guesses for K and L until convergence, then compute SS pension benefit + wages
-function K_L_iterate(input::Input, output::Output; tol::Float64=1e-3, maxiter::Int64=10000)
+function K_L_iterate(input::Input, output::Output; tol::Float64=1e-3, maxiter::Int64=100)
     @unpack α, Jr, N, θ = input
     
     err = 1000.0
@@ -242,22 +241,24 @@ function K_L_iterate(input::Input, output::Output; tol::Float64=1e-3, maxiter::I
     counter = 0
 
     while err > tol && counter < maxiter
-        println("***** Iteration $counter:")
+        if mod(counter,5) == 0
+            println("***** Iteration $counter:")
+        end
         
         # (1) Solve retiree and worker problems with current prices
-        println("Solving retiree problem")
-        @elapsed retiree(input, output; updating=true)
+        #println("Solving retiree problem")
+        retiree(input, output; updating=true)
         
-        println("Solving worker problem")
-        @elapsed worker(input, output; updating=true)
+        #println("Solving worker problem")
+        worker(input, output; updating=true)
         
         # (2) Compute distribution of assets and productivity states across ages
-        println("Solving for stationary distribution F")
-        @elapsed distribution(input, output)
+        #println("Solving for stationary distribution F")
+        distribution(input, output)
         
         # (3) Compute aggregate K and L implied by results from (1) and (2)
-        println("Updating capital and labor guesses")
-        @elapsed K_next, L_next = K_L_update(input, output)
+        #println("Updating capital and labor guesses")
+        K_next, L_next = K_L_update(input, output)
 
         # Calculate difference b/w prev and current guesses for SS K and L
         err = max(abs(K_next - output.K_SS), abs(L_next - output.L_SS))
@@ -266,8 +267,8 @@ function K_L_iterate(input::Input, output::Output; tol::Float64=1e-3, maxiter::I
         end
         
         # Update guesses for SS K and L
-        output.K_SS = 0.5 * K_next + 0.5 * output.K_SS
-        output.L_SS = 0.5 * L_next + 0.5 * output.L_SS
+        output.K_SS = 0.3 * K_next + 0.7 * output.K_SS
+        output.L_SS = 0.3 * L_next + 0.7 * output.L_SS
 
         # Update prices based on updated K and L guesses
         output.w_SS = (1-α) * (output.K_SS^α) * (output.L_SS^(-α)) # wage = MPL

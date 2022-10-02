@@ -1,0 +1,8 @@
+Exog. LS model w/ SS:
+Reminder, population growth = 0.011
+capital K: 11.241709275378305
+labor L: 0.7544254270326115
+wage w: 1.6925353405472325
+interest r: 0.06389167003005902
+pension benefit b: 0.5757195357864751
+welfare: -15.398313257308299
