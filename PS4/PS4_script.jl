@@ -1,6 +1,6 @@
-# Computational Economics - Problem Set 3
+# Computational Economics - Problem Set 4
 # Authors: Dalya, Jackson, Jon
-# September 2022
+# 🍬👻 October 2022 👻🍬
 
 # This is the main file - run this one.
 
@@ -15,28 +15,20 @@ cd("C:\\Users\\jgkro\\Documents\\GitHub\\compdjj\\PS4")
 # Bring in model and other functions
 include("PS4_model.jl")
 
-# Initialize input (primitives) and output (solutions) structures
-input = Input()
-output = Initialize(input)
+# Solve for SS with Social Security
+input_w_socsec = Input(θ=0.11)
+output_w_socsec = Initialize(input_w_socsec)
+@time solve_steady_state(input_w_socsec, output_w_socsec; update_factor=0.5, tol=1e-3)
 
-# iterate to get SS capital, labor, prices, pension benefit
-@time solve_model(input, output)
+# Solve for SS without Social Security
+input_no_socsec = Input(θ=0.0, b=0.0)
+output_no_socsec = Initialize(input_no_socsec)
+@time solve_steady_state(input_no_socsec, output_no_socsec; update_factor=0.5, tol=1e-3)
 
-# value functions
-using Plots
-@unpack a_grid = input
-plot(a_grid, [output.valfunc[:,20,1],output.valfunc[:,20,2],
-    output.valfunc[:,50,1]], 
-    labels=["N=20 (high z)" "N=20 (low z)" "N=50"], title="Value Functions", 
-    xlabel="a", ylabel="V(a,s)", legend=:topleft, linewidth=2)
-savefig("PS03_valfunc_2050.png")
+# Guess: economy converges to new SS after 10 periods
+output_transition = initialize_transition(input_no_socsec, 10)
+K_L_path_initial(input_no_socsec, output_transition)
 
-# policy functions
-plot(a_grid, [output.polfunc[:,20,1],output.polfunc[:,20,2],
-    output.polfunc[:,50,1]], 
-    labels=["N=20 (high z)" "N=20 (low z)" "N=50"], 
-    title="Savings Functions", xlabel="a", ylabel="g(a,s)", 
-    legend=:topleft, linewidth=2)
-savefig("PS03_polfunc_2050.png")
-
-println("Done!")
+# Solve HH problem for each period t=T, T-1, ..., 2, 1
+# Get policy functions at every t, and value function at t=1
+HH_path(input_no_socsec, output_no_socsec, output_transition)
