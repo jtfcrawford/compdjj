@@ -2,7 +2,7 @@
 # This file includes the economic model itself as well as other functions.
 
 # NOTE: If you get an error complaining about redefining a constant, you may need to kill and restart the Julia terminal
-#cd("/Users/dalya/Documents/GitHub/compdjj/PS3")
+#cd("/Users/dalya/Documents/GitHub/compdjj/PS4")
 
 using Parameters
 using DelimitedFiles
@@ -416,7 +416,30 @@ function HH_path(input_no_socsec::Input, output_no_socsec::Output, output_transi
 end
 
 #-----Compute the distribution of assets across age cohorts and states, *for every t*
-function distribution_path()
+function distribution_path(input_no_socsec::Input, output_transition::Output)
+    @unpack N, Π, a_length, a_grid, n, z_length, Π_ergodic = input_no_socsec
+    @unpack polfunc_t = output_transition
+
+    # Step 1: find relative sizes of each cohort of each age j
+    μ_age = ones(N, T)
+    for j=2:N
+        for t=1:T
+            μ_age[j, t] = μ_age[j-1, t] / (1+n)
+        end
+    end
+    μ_age[:,:] = μ_age[:,:] ./ sum(μ_age[1,:])
+    output_transition.μ_age[:,:] = μ_age[:,:]
+
+    F = zeros(a_length, N, z_length, T)
+    F[1, 1, 1, :] = μ_age[1,:] .* Π_ergodic[1]
+    F[1, 1, 2, :] = μ_age[1,:] .* Π_ergodic[2]
+
+    for j=2:N, i=1:a_length, s=1:z_length, t=1:T
+        temp = F[:, j - 1, :, t] .* (polfunc_t[:, j - 1, :, t] .== a_grid[i])
+        F[i, j, s, t] = 1/(1+n) * sum(temp' .* Π[:, s])
+    end
+
+    output_transition.F = F
 end
 
 #-----Compute the path of K and L implied by the results from the above two functions

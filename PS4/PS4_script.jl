@@ -8,8 +8,8 @@ println("Starting...")
 
 # You may need to manually set your file path in the Julia terminal using pwd("C:\\Example\\Filepath")
 # Or you can change this line of code:
-cd("C:\\Users\\jgkro\\Documents\\GitHub\\compdjj\\PS4")
-#cd("/Users/dalya/Documents/GitHub/compdjj/PS4")
+#cd("C:\\Users\\jgkro\\Documents\\GitHub\\compdjj\\PS4")
+cd("/Users/dalya/Documents/GitHub/compdjj/PS4")
 # cd("C:\\Users\\jaxtc\\OneDrive\\Documents\\GitHub\\compdjj\\PS4")
 
 # Bring in model and other functions
@@ -25,10 +25,12 @@ input_no_socsec = Input(θ=0.0, b=0.0)
 output_no_socsec = Initialize(input_no_socsec)
 @time solve_steady_state(input_no_socsec, output_no_socsec; update_factor=0.5, tol=1e-3)
 
-# Guess: economy converges to new SS after 10 periods
-output_transition = initialize_transition(input_no_socsec, 10)
+# Guess: economy converges to new SS after 30 periods
+output_transition = initialize_transition(input_no_socsec, 30)
 K_L_path_initial(input_no_socsec, output_transition)
 
 # Solve HH problem for each period t=T, T-1, ..., 2, 1
 # Get policy functions at every t, and value function at t=1
 HH_path(input_no_socsec, output_no_socsec, output_transition)
+
+distribution_path(input_no_socsec, output_transition)
