@@ -56,6 +56,7 @@ mutable struct Output
     r_SS::Float64 # steady-state interest rate
     w_SS::Float64 # steady-state wage
     b_SS::Float64 # steady-state pension benefit
+    welfare::Float64 # welfare of agents alive in SS
 end
 
 # Struct to store transition path objects
@@ -74,6 +75,8 @@ mutable struct Transition
     w_path::Array{Float64,1} # path of wages
     r_path::Array{Float64,1} # path of interest rates
     b_path::Array{Float64,1} # path of pension benefits
+
+    μ_age_t::Array{Float64,2} # relative size of age cohorts
 end
 
 # Initialize structure to hold transition path objects
@@ -95,7 +98,9 @@ function initialize_transition(input::Input, T::Int64)
     r_path = zeros(T)
     b_path = zeros(T)
 
-    return Transition(T, polfunc_t, labfunc_t, valfunc_0, F_t, K_path, L_path, w_path, r_path, b_path)
+    μ_age_t = ones(N,T)
+
+    return Transition(T, polfunc_t, labfunc_t, valfunc_0, F_t, K_path, L_path, w_path, r_path, b_path, μ_age_t)
 end
 
 # Initialize structures
@@ -117,8 +122,9 @@ function Initialize(input::Input)
     r_SS = input.r
     w_SS = input.w
     b_SS = input.b
+    welfare = 0
     
-    return Output(valfunc, polfunc, labfunc, F, μ_age, K_SS, L_SS, w_SS, r_SS, b_SS)
+    return Output(valfunc, polfunc, labfunc, F, μ_age, K_SS, L_SS, w_SS, r_SS, b_SS, welfare)
 end
 
 # Worker utility function
@@ -309,6 +315,11 @@ function solve_steady_state(input::Input, output::Output; update_factor::Float64
     else
         println("Guesses for K_SS and L_SS converged in $counter iterations!")
     end
+
+    # Calculate welfare
+    welfare = output.valfunc .* output.F
+    welfare = sum(welfare[isfinite.(welfare)])
+    output.welfare = welfare
 end
 
 #---------------------------------------------------
@@ -416,30 +427,30 @@ function HH_path(input_no_socsec::Input, output_no_socsec::Output, output_transi
 end
 
 #-----Compute the distribution of assets across age cohorts and states, *for every t*
-function distribution_path(input_no_socsec::Input, output_transition::Output)
+function distribution_path(input_no_socsec::Input, output_transition::Transition)
     @unpack N, Π, a_length, a_grid, n, z_length, Π_ergodic = input_no_socsec
-    @unpack polfunc_t = output_transition
+    @unpack polfunc_t, T = output_transition
 
     # Step 1: find relative sizes of each cohort of each age j
-    μ_age = ones(N, T)
+    μ_age_t = ones(N, T)
     for j=2:N
         for t=1:T
-            μ_age[j, t] = μ_age[j-1, t] / (1+n)
+            μ_age_t[j, t] = μ_age_t[j-1, t] / (1+n)
         end
     end
-    μ_age[:,:] = μ_age[:,:] ./ sum(μ_age[1,:])
-    output_transition.μ_age[:,:] = μ_age[:,:]
+    μ_age_t[:,:] = μ_age_t[:,:] ./ sum(μ_age_t[1,:])
+    output_transition.μ_age_t[:,:] = μ_age_t[:,:]
 
-    F = zeros(a_length, N, z_length, T)
-    F[1, 1, 1, :] = μ_age[1,:] .* Π_ergodic[1]
-    F[1, 1, 2, :] = μ_age[1,:] .* Π_ergodic[2]
+    F_t = zeros(a_length, N, z_length, T)
+    F_t[1, 1, 1, :] = μ_age_t[1,:] .* Π_ergodic[1]
+    F_t[1, 1, 2, :] = μ_age_t[1,:] .* Π_ergodic[2]
 
     for j=2:N, i=1:a_length, s=1:z_length, t=1:T
-        temp = F[:, j - 1, :, t] .* (polfunc_t[:, j - 1, :, t] .== a_grid[i])
-        F[i, j, s, t] = 1/(1+n) * sum(temp' .* Π[:, s])
+        temp = F_t[:, j - 1, :, t] .* (polfunc_t[:, j - 1, :, t] .== a_grid[i])
+        F_t[i, j, s, t] = 1/(1+n) * sum(temp' .* Π[:, s])
     end
 
-    output_transition.F = F
+    output_transition.F_t = F_t
 end
 
 #-----Compute the path of K and L implied by the results from the above two functions

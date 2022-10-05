@@ -44,8 +44,6 @@ savefig("PS03_polfunc_2050.png")
 # compute stationary distribution F_j(a,z)
 distribution(input,output)
 
-#=
-
 # iterate to get SS capital, labor, prices, pension benefit
 K_L_iterate(input, output)
 
@@ -84,7 +82,7 @@ println(io,"welfare: $(output.welfare)")
 
 close(io)
 
-=#
+
 
 io = open("noriskSS.txt","w")
 

@@ -9,8 +9,8 @@ println("Starting...")
 # You may need to manually set your file path in the Julia terminal using pwd("C:\\Example\\Filepath")
 # Or you can change this line of code:
 #cd("C:\\Users\\jgkro\\Documents\\GitHub\\compdjj\\PS4")
-cd("/Users/dalya/Documents/GitHub/compdjj/PS4")
-# cd("C:\\Users\\jaxtc\\OneDrive\\Documents\\GitHub\\compdjj\\PS4")
+#cd("/Users/dalya/Documents/GitHub/compdjj/PS4")
+cd("C:\\Users\\jaxtc\\OneDrive\\Documents\\GitHub\\compdjj\\PS4")
 
 # Bring in model and other functions
 include("PS4_model.jl")
@@ -34,3 +34,22 @@ K_L_path_initial(input_no_socsec, output_transition)
 HH_path(input_no_socsec, output_no_socsec, output_transition)
 
 distribution_path(input_no_socsec, output_transition)
+
+# Exercise 1-2 Plots
+using Plots
+plot(Array(range(1,length(output_transition.K_path))), output_transition.K_path, 
+    title="K path", 
+    xlabel="t", ylabel="K", legend=:topleft, linewidth=2)
+savefig("PS04_Kpath.png")
+plot(Array(range(1,length(output_transition.K_path))), output_transition.L_path, 
+    title="L path", 
+    xlabel="t", ylabel="L", legend=:topleft, linewidth=2)
+savefig("PS04_Lpath.png")
+plot(Array(range(1,length(output_transition.K_path))), output_transition.w_path, 
+    title="w path", 
+    xlabel="t", ylabel="w", legend=:topleft, linewidth=2)
+savefig("PS04_wpath.png")
+plot(Array(range(1,length(output_transition.K_path))), output_transition.r_path, 
+    title="r path", 
+    xlabel="t", ylabel="r", legend=:topleft, linewidth=2)
+savefig("PS04_rpath.png")
