@@ -1,9 +1,8 @@
-#------------------------------------------------
-# AUTHOR: Jon Kroah
-# DATE CREATED: 08 Oct 2022
+#----------------------------------------------------
+# AUTHORS: Jackson Crawford, Jon Kroah, Dalya Elmalt
 # Based on reference code from Phil Coyle.
 # Also referenced code from Katherine Kwok.
-#------------------------------------------------
+#----------------------------------------------------
 using Plots, Parameters, Random, Distributions, Interpolations, Optim, DataFrames, GLM
 
 #------------------------------------------------------------------------------
