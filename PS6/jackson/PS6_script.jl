@@ -12,3 +12,8 @@ cd("C:\\Users\\jaxtc\\OneDrive\\Documents\\GitHub\\compdjj\\PS6\\jackson")
 
 # Bring in model and other functions
 include("PS6_model.jl")
+
+input = Input()
+output = initialize_output(input)
+
+value_iteration(input,output)
